@@ -805,109 +805,244 @@ async function exportPDF(){
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const c=cruise();
   const pins=Object.values(c.pins);
-  const W=210,H=297;
-  const NAVY=[26,39,68],SAND=[245,230,200],SANDM=[200,180,140],WHITE=[255,255,255];
+  const W=210,H=297,ML=16,MR=16,MT=16,CW=W-ML-MR;
 
-  // Cover
-  doc.setFillColor(...NAVY); doc.rect(0,0,W,H,'F');
-  doc.setFont('helvetica','bold'); doc.setFontSize(34); doc.setTextColor(...SAND);
-  doc.text(c.name,W/2,22,{align:'center'});
-  doc.setFont('helvetica','italic'); doc.setFontSize(13); doc.setTextColor(...SANDM);
-  doc.text('Sailing Journal',W/2,31,{align:'center'});
+  // Palette
+  const NAVY=[26,39,68],SAND=[245,230,200],SAND_L=[253,246,234];
+  const GREY=[148,140,130],WHITE=[255,255,255],DIV=[215,205,190];
+  const LRGB={a:[193,68,14],r:[107,124,62],c:[46,109,164],h:[45,106,79]};
 
-  // Map image
-  const ctr=map.getCenter();
-  const zm=Math.max(map.getZoom()-1,5);
-  const murl=`https://maps.googleapis.com/maps/api/staticmap?center=${ctr.lat()},${ctr.lng()}&zoom=${zm}&size=640x400&maptype=terrain&key=${GKEY}`;
-  let mapBot=42;
+  // ── HELPERS ──────────────────────────────────────────────────────────────────
+  function dateRange(){
+    const ds=pins.filter(p=>p.ds).map(p=>p.ds).sort();
+    const de=pins.filter(p=>p.de).map(p=>p.de).sort();
+    if(!ds.length) return '';
+    const end=de.length?de[de.length-1]:ds[ds.length-1];
+    return ds[0]===end?fd(ds[0]):`${fd(ds[0])} – ${fd(end)}`;
+  }
+
+  function coverMapUrl(){
+    let url=`https://maps.googleapis.com/maps/api/staticmap?size=640x400&maptype=terrain&key=${GKEY}`;
+    if(!pins.length) return url+'&center=37.5,25.0&zoom=7';
+    const grp={a:[],r:[],c:[],h:[]};
+    pins.forEach(p=>grp[p.l].push(`${p.lat},${p.lng}`));
+    const hex={a:'0xc1440e',r:'0x6b7c3e',c:'0x2e6da4',h:'0x2d6a4f'};
+    for(const l of ['a','r','c','h']){
+      if(grp[l].length) url+=`&markers=size:small|color:${hex[l]}|`+grp[l].join('|');
+    }
+    url+='&visible='+pins.map(p=>`${p.lat},${p.lng}`).join('|');
+    return url;
+  }
+
+  function lighten(rgb,amt){
+    return rgb.map(v=>Math.min(255,v+amt));
+  }
+
+  // ── COVER PAGE ───────────────────────────────────────────────────────────────
+  doc.setFillColor(...SAND_L);
+  doc.rect(0,0,W,H,'F');
+
+  // Navy header band
+  doc.setFillColor(...NAVY);
+  doc.rect(0,0,W,54,'F');
+
+  // Cruise name
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(30);
+  doc.setTextColor(...SAND);
+  doc.text(c.name,W/2,27,{align:'center'});
+
+  // Date range
+  const dr=dateRange();
+  if(dr){
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(11);
+    doc.setTextColor(205,192,168);
+    doc.text(dr,W/2,39,{align:'center'});
+  }
+
+  // Sub-label
+  doc.setFont('helvetica','normal');
+  doc.setFontSize(7);
+  doc.setTextColor(148,135,112);
+  doc.text('SAILING JOURNAL',W/2,49,{align:'center'});
+
+  // Map
+  const mapX=ML,mapY=62,mapW=CW,mapH=Math.round(CW*400/640); // ≈111mm
   try{
-    const md=await imgToDataURL(murl);
-    doc.addImage(md,'JPEG',15,38,W-30,(W-30)*400/640);
-    mapBot=38+(W-30)*400/640+6;
-  }catch(e){mapBot=42;}
+    const img=await imgToDataURL(coverMapUrl());
+    doc.addImage(img,'JPEG',mapX,mapY,mapW,mapH);
+    doc.setDrawColor(...DIV);
+    doc.setLineWidth(0.3);
+    doc.rect(mapX,mapY,mapW,mapH);
+  }catch(e){
+    doc.setFillColor(200,210,218);
+    doc.rect(mapX,mapY,mapW,mapH,'F');
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(9);
+    doc.setTextColor(110,120,130);
+    doc.text('Map unavailable',W/2,mapY+mapH/2,{align:'center'});
+  }
 
-  // Stats
-  const sw=W-30,sh=32,sx=15,sy=mapBot;
-  doc.setFillColor(42,58,92); doc.roundedRect(sx,sy,sw,sh,3,3,'F');
-  const layers=['a','r','c','h'];
-  layers.forEach((l,i)=>{
-    const cfg=LC[l];
-    const cnt=pins.filter(p=>p.l===l).length;
-    const bw=sw/4, bx=sx+i*bw+bw/2;
-    const [r,g,b]=hexRGB(cfg.color);
-    doc.setFillColor(r,g,b); doc.circle(bx,sy+9,3.5,'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(17); doc.setTextColor(...SAND);
-    doc.text(String(cnt),bx,sy+20,{align:'center'});
-    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...SANDM);
-    doc.text(cfg.label,bx,sy+27,{align:'center'});
+  // Legend
+  const lgY=mapY+mapH+10;
+  doc.setFont('helvetica','bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...GREY);
+  doc.text('STOPS BY CATEGORY',ML,lgY);
+
+  const lkeys=['a','r','c','h'];
+  const bw=(CW-12)/4; // box width with 4px gap between
+  lkeys.forEach((l,i)=>{
+    const rgb=LRGB[l];
+    const cnt=l==='a'?anchorsSorted().length:pins.filter(p=>p.l===l).length;
+    const bx=ML+i*(bw+4), by=lgY+5;
+    doc.setFillColor(...rgb);
+    doc.roundedRect(bx,by,bw,16,2,2,'F');
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(17);
+    doc.setTextColor(...WHITE);
+    doc.text(String(cnt),bx+bw/2,by+11,{align:'center'});
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...NAVY);
+    doc.text(LC[l].label,bx+bw/2,by+22,{align:'center'});
   });
 
-  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(...SANDM);
-  doc.text(new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}),W/2,H-12,{align:'center'});
+  // ── STOP PAGES ───────────────────────────────────────────────────────────────
+  let pageNum=0;
+  let y=0;
+  const BOTTOM=H-20; // content zone ends here; footer occupies H-20 to H
 
-  // Layer sections
-  for(const l of layers){
-    const lPins=l==='a'?anchorsSorted():pins.filter(p=>p.l===l);
-    if(!lPins.length) continue;
-    const cfg=LC[l];
-    const [lr,lg,lb]=hexRGB(cfg.color);
+  function drawFooter(){
+    doc.setDrawColor(...DIV);
+    doc.setLineWidth(0.2);
+    doc.line(ML,H-14,W-MR,H-14);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GREY);
+    doc.text(c.name,ML,H-9);
+    doc.text(String(pageNum),W-MR,H-9,{align:'right'});
+  }
 
-    // Section page
+  function newPage(){
+    if(pageNum>0) drawFooter();
     doc.addPage();
-    doc.setFillColor(...NAVY); doc.rect(0,0,W,H,'F');
-    doc.setFillColor(lr,lg,lb); doc.rect(0,H/2-26,W,52,'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(38); doc.setTextColor(...WHITE);
-    doc.text(cfg.label,W/2,H/2+6,{align:'center'});
-    doc.setFont('helvetica','normal'); doc.setFontSize(13); doc.setTextColor(...SAND);
-    doc.text(`${lPins.length} entr${lPins.length===1?'y':'ies'}`,W/2,H/2+17,{align:'center'});
+    pageNum++;
+    doc.setFillColor(...SAND_L);
+    doc.rect(0,0,W,H,'F');
+    y=MT;
+  }
 
-    for(let i=0;i<lPins.length;i++){
-      const pin=lPins[i];
-      doc.addPage();
-      // Header
-      doc.setFillColor(lr,lg,lb); doc.rect(0,0,W,24,'F');
-      doc.setFillColor(...WHITE); doc.circle(14,12,6.5,'F');
-      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(lr,lg,lb);
-      const lbl=l==='a'?String(i+1):cfg.letter;
-      doc.text(lbl,14,13.5,{align:'center'});
-      doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...WHITE);
-      doc.text(pin.name,25,14,{maxWidth:W-40});
-      let y=32;
-      if(pin.ds){
-        const ds=pin.de&&pin.de!==pin.ds?`${fd(pin.ds)} – ${fd(pin.de)}`:fd(pin.ds);
-        doc.setFont('helvetica','italic'); doc.setFontSize(11); doc.setTextColor(100,100,100);
-        doc.text(ds,15,y); y+=7;
-      }
-      doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(160,160,160);
-      doc.text(`${pin.lat.toFixed(5)}°N, ${pin.lng.toFixed(5)}°E`,15,y); y+=7;
-      doc.setDrawColor(210,195,170); doc.setLineWidth(.3); doc.line(15,y,W-15,y); y+=6;
-      if(pin.notes){
-        doc.setFont('helvetica','normal'); doc.setFontSize(11); doc.setTextColor(40,40,40);
-        const lines=doc.splitTextToSize(pin.notes,W-30);
-        for(const ln of lines){
-          if(y>H-20){doc.addPage();y=18;}
-          doc.text(ln,15,y); y+=6;
-        }
-        y+=3;
-      }
-      if(pin.photos&&pin.photos.length){
-        const cols=2, iw=(W-35)/cols, ih=iw*.65;
-        let col=0;
-        for(const src of pin.photos){
-          const px=15+col*(iw+5);
-          if(y+ih>H-15){doc.addPage();y=18;}
-          try{
-            const fmt=src.startsWith('data:image/png')?'PNG':'JPEG';
-            doc.addImage(src,fmt,px,y,iw,ih);
-          }catch(e){}
-          col++;
-          if(col>=cols){col=0;y+=ih+5;}
-        }
-        if(col>0) y+=ih+5;
-      }
+  // Height a stop will occupy (measured before drawing)
+  function stopH(pin){
+    let h=8; // name/date row
+    if(pin.notes){
+      const lines=doc.splitTextToSize(pin.notes,CW-12);
+      h+=Math.min(lines.length,5)*4.5+2;
+    }
+    return h+5; // +5 for divider gap
+  }
+
+  // Draw one stop at the current y, advancing y
+  function drawStop(pin,idx,l,isLast){
+    const rgb=LRGB[l];
+    const lbl=l==='a'?String(idx+1):LC[l].letter;
+    const dotX=ML+4.5, dotY=y+4;
+
+    // Coloured dot badge
+    doc.setFillColor(...rgb);
+    doc.circle(dotX,dotY,3.5,'F');
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(lbl.length>1?5.5:7);
+    doc.setTextColor(...WHITE);
+    doc.text(lbl,dotX,dotY+0.7,{align:'center'});
+
+    // Name (bold, navy)
+    const tx=ML+11;
+    const ds=pin.ds?(pin.de&&pin.de!==pin.ds?`${fd(pin.ds)} – ${fd(pin.de)}`:fd(pin.ds)):'';
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...NAVY);
+    doc.text(pin.name,tx,y+5.5,{maxWidth:ds?CW-50:CW-14});
+
+    // Date (grey, right-aligned, same baseline)
+    if(ds){
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...GREY);
+      doc.text(ds,W-MR,y+5.5,{align:'right'});
+    }
+    y+=8;
+
+    // Notes (smaller, dark)
+    if(pin.notes){
+      const lines=doc.splitTextToSize(pin.notes,CW-12);
+      const shown=lines.slice(0,5);
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(70,65,58);
+      shown.forEach(ln=>{doc.text(ln,tx,y);y+=4.5;});
+      if(lines.length>5){doc.setTextColor(...GREY);doc.text('…',tx,y);}
+      y+=2;
+    }
+
+    // Thin divider between stops
+    if(!isLast){
+      doc.setDrawColor(...DIV);
+      doc.setLineWidth(0.2);
+      doc.line(ML+8,y+1,W-MR,y+1);
+      y+=5;
+    } else {
+      y+=4;
     }
   }
 
+  // Iterate layer groups
+  for(const l of lkeys){
+    const lPins=l==='a'?anchorsSorted():pins.filter(p=>p.l===l);
+    if(!lPins.length) continue;
+    const rgb=LRGB[l];
+
+    // Open a content page (first time, or if header+first stop won't fit)
+    if(pageNum===0){
+      newPage();
+    } else if(y+9+stopH(lPins[0])>BOTTOM){
+      newPage();
+    }
+
+    // Layer header bar
+    doc.setFillColor(...rgb);
+    doc.rect(ML,y,CW,8,'F');
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...WHITE);
+    doc.text(LC[l].label.toUpperCase(),ML+5,y+5.5);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(8);
+    doc.text(`${lPins.length} stop${lPins.length!==1?'s':''}`,W-MR-2,y+5.5,{align:'right'});
+    y+=11;
+
+    // Stops
+    for(let i=0;i<lPins.length;i++){
+      const pin=lPins[i];
+      if(y+stopH(pin)>BOTTOM){
+        newPage();
+        // Lighter continuation bar
+        doc.setFillColor(...lighten(rgb,45));
+        doc.rect(ML,y,CW,5,'F');
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(7);
+        doc.setTextColor(...WHITE);
+        doc.text(LC[l].label.toUpperCase()+' (cont.)',ML+4,y+3.5);
+        y+=8;
+      }
+      drawStop(pin,i,l,i===lPins.length-1);
+    }
+    y+=3; // gap between groups
+  }
+
+  if(pageNum>0) drawFooter();
   doc.save(`${c.name.replace(/\s+/g,'-')}-journal.pdf`);
 }
 async function imgToDataURL(url){
