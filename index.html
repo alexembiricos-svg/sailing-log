@@ -824,11 +824,22 @@ async function exportPDF(){
   function coverMapUrl(){
     let url=`https://maps.googleapis.com/maps/api/staticmap?size=640x400&maptype=terrain&key=${GKEY}`;
     if(!pins.length) return url+'&center=37.5,25.0&zoom=7';
-    const grp={a:[],r:[],c:[],h:[]};
-    pins.forEach(p=>grp[p.l].push(`${p.lat},${p.lng}`));
     const hex={a:'0xc1440e',r:'0x6b7c3e',c:'0x2e6da4',h:'0x2d6a4f'};
+    const ltr={r:'R',c:'C',h:'H'};
+    const layerPins={
+      a:anchorsSorted(),
+      r:pins.filter(p=>p.l==='r'),
+      c:pins.filter(p=>p.l==='c'),
+      h:pins.filter(p=>p.l==='h')
+    };
     for(const l of ['a','r','c','h']){
-      if(grp[l].length) url+=`&markers=size:small|color:${hex[l]}|`+grp[l].join('|');
+      layerPins[l].forEach((p,i)=>{
+        // Static Maps API only supports single alphanumeric char labels
+        const lbl=l==='a'
+          ?(i<9?String(i+1):String.fromCharCode(65+i-9)) // 1-9, then A B C…
+          :ltr[l];
+        url+=`&markers=size:mid|color:${hex[l]}|label:${lbl}|${p.lat},${p.lng}`;
+      });
     }
     url+='&visible='+pins.map(p=>`${p.lat},${p.lng}`).join('|');
     return url;
@@ -947,14 +958,14 @@ async function exportPDF(){
   // Draw one stop at the current y, advancing y
   function drawStop(pin,idx,l,isLast){
     const rgb=LRGB[l];
-    const lbl=l==='a'?String(idx+1):LC[l].letter;
+    const lbl=l==='a'?String(idx+1):(LC[l].letter+String(idx+1));
     const dotX=ML+4.5, dotY=y+4;
 
     // Coloured dot badge
     doc.setFillColor(...rgb);
     doc.circle(dotX,dotY,3.5,'F');
     doc.setFont('helvetica','bold');
-    doc.setFontSize(lbl.length>1?5.5:7);
+    doc.setFontSize(lbl.length>2?4.5:lbl.length>1?5.5:7);
     doc.setTextColor(...WHITE);
     doc.text(lbl,dotX,dotY+0.7,{align:'center'});
 
