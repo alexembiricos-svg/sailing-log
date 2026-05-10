@@ -821,28 +821,36 @@ async function exportPDF(){
     return ds[0]===end?fd(ds[0]):`${fd(ds[0])} – ${fd(end)}`;
   }
 
-  function coverMapUrl(){
-    let url=`https://maps.googleapis.com/maps/api/staticmap?size=640x400&maptype=terrain&key=${GKEY}`;
-    if(!pins.length) return url+'&center=37.5,25.0&zoom=7';
-    const hex={a:'0xc1440e',r:'0x6b7c3e',c:'0x2e6da4',h:'0x2d6a4f'};
-    const ltr={r:'R',c:'C',h:'H'};
-    const layerPins={
-      a:anchorsSorted(),
-      r:pins.filter(p=>p.l==='r'),
-      c:pins.filter(p=>p.l==='c'),
-      h:pins.filter(p=>p.l==='h')
-    };
-    for(const l of ['a','r','c','h']){
-      layerPins[l].forEach((p,i)=>{
-        // Static Maps API only supports single alphanumeric char labels
-        const lbl=l==='a'
-          ?(i<9?String(i+1):String.fromCharCode(65+i-9)) // 1-9, then A B C…
-          :ltr[l];
-        url+=`&markers=size:mid|color:${hex[l]}|label:${lbl}|${p.lat},${p.lng}`;
+  // Mercator helpers — project lat/lng to pixel coords at a given zoom
+  function mercY(lat){
+    const s=Math.sin(lat*Math.PI/180);
+    return 0.5-Math.log((1+s)/(1-s))/(4*Math.PI);
+  }
+  function worldPx(lat,lng,zoom){
+    const sc=256*Math.pow(2,zoom);
+    return{x:(lng+180)/360*sc, y:mercY(lat)*sc};
+  }
+  // Find center+zoom so all pins fit inside imgW×imgH with pad pixels of margin
+  function calcView(allPins,imgW,imgH,pad){
+    if(!allPins.length) return{cLat:37.5,cLng:25,zoom:7};
+    if(allPins.length===1) return{cLat:allPins[0].lat,cLng:allPins[0].lng,zoom:10};
+    const lats=allPins.map(p=>p.lat),lngs=allPins.map(p=>p.lng);
+    const cLat=(Math.min(...lats)+Math.max(...lats))/2;
+    const cLng=(Math.min(...lngs)+Math.max(...lngs))/2;
+    let zoom=13;
+    while(zoom>1){
+      const cPx=worldPx(cLat,cLng,zoom);
+      const ok=allPins.every(p=>{
+        const px=worldPx(p.lat,p.lng,zoom);
+        return Math.abs(px.x-cPx.x)<=imgW/2-pad && Math.abs(px.y-cPx.y)<=imgH/2-pad;
       });
+      if(ok) break;
+      zoom--;
     }
-    url+='&visible='+pins.map(p=>`${p.lat},${p.lng}`).join('|');
-    return url;
+    return{cLat,cLng,zoom};
+  }
+  function coverMapUrl(cLat,cLng,zoom){
+    return `https://maps.googleapis.com/maps/api/staticmap?size=640x400&maptype=terrain&center=${cLat},${cLng}&zoom=${zoom}&key=${GKEY}`;
   }
 
   function lighten(rgb,amt){
@@ -879,13 +887,46 @@ async function exportPDF(){
   doc.text('SAILING JOURNAL',W/2,49,{align:'center'});
 
   // Map
-  const mapX=ML,mapY=62,mapW=CW,mapH=Math.round(CW*400/640); // ≈111mm
+  const IMG_W=640,IMG_H=400,PAD_PX=35;
+  const {cLat,cLng,zoom:mapZoom}=calcView(pins,IMG_W,IMG_H,PAD_PX);
+  const mapX=ML,mapY=62,mapW=CW,mapH=Math.round(CW*IMG_H/IMG_W); // ≈111mm
   try{
-    const img=await imgToDataURL(coverMapUrl());
+    const img=await imgToDataURL(coverMapUrl(cLat,cLng,mapZoom));
     doc.addImage(img,'JPEG',mapX,mapY,mapW,mapH);
     doc.setDrawColor(...DIV);
     doc.setLineWidth(0.3);
     doc.rect(mapX,mapY,mapW,mapH);
+
+    // Overlay labeled markers drawn with jsPDF (no single-char API limitation)
+    const scX=mapW/IMG_W, scY=mapH/IMG_H;
+    const cPx=worldPx(cLat,cLng,mapZoom);
+    const layerPins={
+      a:anchorsSorted(),
+      r:pins.filter(p=>p.l==='r'),
+      c:pins.filter(p=>p.l==='c'),
+      h:pins.filter(p=>p.l==='h')
+    };
+    for(const l of ['a','r','c','h']){
+      layerPins[l].forEach((p,i)=>{
+        const px=worldPx(p.lat,p.lng,mapZoom);
+        const ix=IMG_W/2+(px.x-cPx.x);
+        const iy=IMG_H/2+(px.y-cPx.y);
+        if(ix<3||ix>IMG_W-3||iy<3||iy>IMG_H-3) return; // clamp
+        const mx=mapX+ix*scX;
+        const my=mapY+iy*scY;
+        const lbl=l==='a'?String(i+1):(LC[l].letter+String(i+1));
+        const r=3.2;
+        doc.setFillColor(...LRGB[l]);
+        doc.circle(mx,my,r,'F');
+        doc.setDrawColor(...WHITE);
+        doc.setLineWidth(0.3);
+        doc.circle(mx,my,r,'S');
+        doc.setFont('helvetica','bold');
+        doc.setFontSize(lbl.length>2?4:lbl.length===2?5.5:7);
+        doc.setTextColor(...WHITE);
+        doc.text(lbl,mx,my+0.7,{align:'center'});
+      });
+    }
   }catch(e){
     doc.setFillColor(200,210,218);
     doc.rect(mapX,mapY,mapW,mapH,'F');
