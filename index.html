@@ -176,6 +176,18 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
 /* ── SAVING INDICATOR ── */
 #save-dot{width:7px;height:7px;border-radius:50%;background:rgba(245,230,200,.3);flex-shrink:0;transition:background .3s;align-self:center}
 #save-dot.saving{background:#f0c040}
+/* ── FLEET MODAL ── */
+#flt{position:fixed;inset:0;z-index:200;display:none;align-items:flex-end}
+#flt.show{display:flex}
+/* ── VESSEL ITEMS IN FLEET LIST ── */
+.flt-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:#fff;border:1.5px solid #e8ddd0;margin-bottom:8px}
+.flt-pulse{width:9px;height:9px;border-radius:50%;background:#ddd;flex-shrink:0;transition:background .3s,box-shadow .3s}
+.flt-pulse.live{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.22)}
+.flt-info{flex:1;min-width:0}
+.flt-vname{font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flt-mmsi{font-size:11px;color:#aaa;margin-top:1px}
+.flt-del{background:none;border:none;color:#ccc;font-size:17px;cursor:pointer;padding:4px;line-height:1;flex-shrink:0}
+.flt-del:active{color:#c00}
 /* ── LOCATION DOT ── */
 .loc-dot{position:absolute;width:16px;height:16px;transform:translate(-50%,-50%);pointer-events:none}
 .loc-dot::before{content:'';position:absolute;inset:0;border-radius:50%;background:#4285f4;border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35);z-index:1}
@@ -247,6 +259,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
     </button>
     <span id="user-name" style="font-size:12px;opacity:.55;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px"></span>
     <div id="save-dot"></div>
+    <button class="hbtn" onclick="openFleet()" id="fleet-btn" title="Friends Fleet" style="padding:6px 9px;font-size:15px">⛵</button>
     <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
     <button class="hbtn" onclick="signOutUser()" title="Sign out" style="padding:6px 9px;font-size:15px">⏏</button>
   </div>
@@ -300,6 +313,26 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
   </div>
 </div>
 
+<div id="flt">
+  <div class="cmo" onclick="closeFleet()"></div>
+  <div class="cmp">
+    <div class="handle" style="margin:10px auto 0"></div>
+    <div class="cmtop">
+      <div class="cmtitle">Friends Fleet</div>
+      <div class="clist" id="flt-list"></div>
+      <div class="ncf" style="flex-direction:column;gap:8px">
+        <input class="nci" id="fi-name" placeholder="Vessel name…" autocomplete="off">
+        <div style="display:flex;gap:8px">
+          <input class="nci" id="fi-mmsi" placeholder="MMSI (9 digits)" inputmode="numeric" maxlength="9" style="flex:1" onkeydown="if(event.key==='Enter')addVessel()">
+          <button class="ncb" onclick="addVessel()">Add</button>
+        </div>
+      </div>
+      <div id="flt-err" style="font-size:12px;color:#c0392b;padding:5px 16px 0;min-height:16px"></div>
+      <div id="flt-count" style="font-size:11px;color:#aaa;padding:3px 16px 4px;text-align:right"></div>
+    </div>
+  </div>
+</div>
+
 <div id="lb" onclick="closeLB()">
   <button id="lbx" onclick="closeLB()">✕</button>
   <img id="lbimg" src="" alt="">
@@ -330,6 +363,12 @@ let viewPhotos = [];
 let pressTimer = null, pressLL = null; // long-press state
 let locDot = null, locWatchId = null;  // geolocation
 let pendingPinLL = null;               // coordinates for the currently-open add sheet
+// ── AIS / FLEET STATE ─────────────────────────────────────────────────────────
+const AIS_KEY = '13f87964265fa01772460ab7d503fa58b4a53df5';
+let VKS = {};        // mmsi → google.maps.Marker
+let VPos = {};       // mmsi → {lat,lng,cog,sog,ts}
+let aisWS = null;
+let aisRetry = null;
 
 // ── FIREBASE ─────────────────────────────────────────────────────────────────
 firebase.initializeApp({
@@ -437,6 +476,7 @@ function onBothReady(){
   document.getElementById('cname-txt').textContent = cruise()?.name||'My Cruise';
   renderAll();
   startLocationTracking();
+  connectAIS();
 }
 function initMap(){
   map = new google.maps.Map(document.getElementById('map'),{
@@ -1375,6 +1415,163 @@ function initListSheet(){
 }
 initListSheet();
 
+// ── FLEET MANAGEMENT ─────────────────────────────────────────────────────────
+function fleet(){ return D.fleet||(D.fleet=[]); }
+
+function openFleet(){
+  renderFleetList();
+  document.getElementById('flt').classList.add('show');
+}
+function closeFleet(){
+  document.getElementById('flt').classList.remove('show');
+  document.getElementById('fi-name').value='';
+  document.getElementById('fi-mmsi').value='';
+  document.getElementById('flt-err').textContent='';
+}
+function renderFleetList(){
+  const f=fleet();
+  const el=document.getElementById('flt-list');
+  el.innerHTML=f.length ? f.map(v=>{
+    const live=VPos[v.mmsi]&&(Date.now()-VPos[v.mmsi].ts<300000);
+    return `<div class="flt-item">
+      <div class="flt-pulse${live?' live':''}" id="fpulse-${v.mmsi}"></div>
+      <div class="flt-info">
+        <div class="flt-vname">${esc(v.name)}</div>
+        <div class="flt-mmsi">MMSI ${v.mmsi}</div>
+      </div>
+      <button class="flt-del" onclick="removeVessel('${v.mmsi}')">✕</button>
+    </div>`;
+  }).join('') : '<div style="text-align:center;color:#aaa;font-size:13px;padding:14px 0">No vessels added yet.</div>';
+  const n=f.length;
+  document.getElementById('flt-count').textContent=n?`${n}/20 vessels`:'';
+}
+function addVessel(){
+  const name=document.getElementById('fi-name').value.trim();
+  const mmsi=document.getElementById('fi-mmsi').value.trim();
+  const err=document.getElementById('flt-err');
+  err.textContent='';
+  if(!name){err.textContent='Please enter a vessel name.';return;}
+  if(!/^\d{9}$/.test(mmsi)){err.textContent='MMSI must be exactly 9 digits.';return;}
+  const f=fleet();
+  if(f.length>=20){err.textContent='Maximum 20 vessels reached.';return;}
+  if(f.find(v=>v.mmsi===mmsi)){err.textContent='That MMSI is already in your fleet.';return;}
+  f.push({name,mmsi});
+  save();
+  document.getElementById('fi-name').value='';
+  document.getElementById('fi-mmsi').value='';
+  renderFleetList();
+  connectAIS(); // reconnect with updated MMSI list
+}
+function removeVessel(mmsi){
+  D.fleet=fleet().filter(v=>v.mmsi!==mmsi);
+  save();
+  clearVesselMarker(mmsi);
+  renderFleetList();
+  connectAIS();
+}
+
+// ── VESSEL MARKERS ────────────────────────────────────────────────────────────
+function vesselSVG(name, cog){
+  const angle=(cog!=null&&cog>=0&&cog<=360)?Math.round(cog):0;
+  const label=name.length>15?name.slice(0,15)+'…':name;
+  // Escape XML entities in name for SVG text
+  const safeLabel=label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="52" overflow="visible">
+      <g transform="translate(40,19) rotate(${angle})">
+        <polygon points="0,-15 10,9 0,3 -10,9" fill="#1a7fd4" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>
+      </g>
+      <text x="40" y="41" text-anchor="middle" font-family="sans-serif" font-size="10" font-weight="700"
+        fill="#1a2744" stroke="#fff" stroke-width="3" paint-order="stroke">${safeLabel}</text>
+    </svg>`
+  );
+}
+function placeVesselMarker(mmsi, lat, lng, cog){
+  const v=fleet().find(x=>x.mmsi===mmsi);
+  if(!v||!map) return;
+  const icon={url:vesselSVG(v.name,cog),scaledSize:new google.maps.Size(80,52),anchor:new google.maps.Point(40,19)};
+  if(VKS[mmsi]){
+    VKS[mmsi].setPosition({lat,lng});
+    VKS[mmsi].setIcon(icon);
+  } else {
+    const mk=new google.maps.Marker({position:{lat,lng},map,icon,title:v.name,zIndex:9});
+    mk.addListener('click',()=>openVesselSheet(mmsi));
+    VKS[mmsi]=mk;
+  }
+}
+function clearVesselMarker(mmsi){
+  if(VKS[mmsi]){VKS[mmsi].setMap(null);delete VKS[mmsi];}
+  delete VPos[mmsi];
+}
+function openVesselSheet(mmsi){
+  const v=fleet().find(x=>x.mmsi===mmsi); if(!v) return;
+  const p=VPos[mmsi];
+  const sog=p?.sog!=null?`${parseFloat(p.sog).toFixed(1)} kn`:'—';
+  const cog=p?.cog!=null?`${Math.round(p.cog)}°`:'—';
+  const ago=p?.ts?timeSince(p.ts):'No data yet';
+  openSheet(v.name,`
+    <div class="badge" style="background:#1a7fd4">⛵ Vessel</div>
+    <div class="vname">${esc(v.name)}</div>
+    <div class="vdate" style="color:#aaa">MMSI: ${v.mmsi}</div>
+    ${p?`<div class="divider"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div><div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Speed</div>
+           <div style="font-size:20px;font-weight:700;color:var(--navy);font-family:'Playfair Display',serif">${sog}</div></div>
+      <div><div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Course</div>
+           <div style="font-size:20px;font-weight:700;color:var(--navy);font-family:'Playfair Display',serif">${cog}</div></div>
+    </div>
+    <div style="font-size:12px;color:#aaa">Updated ${ago}</div>`
+    :'<div style="color:#aaa;font-size:14px;margin-top:12px">Waiting for position report…</div>'}
+    <div class="brow" style="margin-top:20px"><button class="btn bs" onclick="closeSheet()">Close</button></div>`);
+}
+function timeSince(ts){
+  const s=Math.floor((Date.now()-ts)/1000);
+  if(s<60) return s+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  return Math.floor(s/3600)+'h ago';
+}
+
+// ── AIS WEBSOCKET ─────────────────────────────────────────────────────────────
+function connectAIS(){
+  clearTimeout(aisRetry);
+  disconnectAIS();
+  const f=D?.fleet;
+  if(!f?.length||!currentUser) return;
+  aisWS=new WebSocket('wss://stream.aisstream.io/v0/stream');
+  aisWS.onopen=()=>{
+    aisWS.send(JSON.stringify({
+      APIKey:AIS_KEY,
+      BoundingBoxes:[[[-90,-180],[90,180]]],
+      FilterMessageTypes:['PositionReport'],
+      FiltersShipMMSI:f.map(v=>String(v.mmsi))
+    }));
+  };
+  aisWS.onmessage=e=>{
+    try{ handleAIS(JSON.parse(e.data)); }catch(_){}
+  };
+  aisWS.onerror=()=>{};
+  aisWS.onclose=()=>{
+    aisWS=null;
+    if(currentUser&&D?.fleet?.length) aisRetry=setTimeout(connectAIS,30000);
+  };
+}
+function disconnectAIS(){
+  if(aisWS){aisWS.onclose=null;aisWS.close();aisWS=null;}
+}
+function handleAIS(msg){
+  if(msg.MessageType!=='PositionReport') return;
+  const mmsi=String(msg.MetaData.MMSI);
+  const pr=msg.Message.PositionReport;
+  const lat=pr.Latitude, lng=pr.Longitude;
+  if(lat==null||lng==null||lat===0&&lng===0) return;
+  const cog=pr.Cog, sog=pr.Sog;
+  VPos[mmsi]={lat,lng,cog,sog,ts:Date.now()};
+  placeVesselMarker(mmsi,lat,lng,cog);
+  // Light up the live dot in the fleet modal if it's open
+  const dot=document.getElementById('fpulse-'+mmsi);
+  if(dot) dot.classList.add('live');
+}
+
 // ── AUTH STATE ────────────────────────────────────────────────────────────────
 auth.onAuthStateChanged(async user=>{
   if(user){
@@ -1389,6 +1586,8 @@ auth.onAuthStateChanged(async user=>{
     D=null;
     Object.values(MKS).forEach(m=>m.setMap(null));
     MKS={};
+    Object.keys(VKS).forEach(clearVesselMarker);
+    disconnectAIS();
     document.getElementById('stoplist').innerHTML='';
     document.getElementById('user-name').textContent='';
     document.getElementById('signin-screen').style.display='flex';
