@@ -6,6 +6,9 @@
 <title>Sailing Journal</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --navy:#1a2744;--navy-l:#243258;--navy-d:#0f1929;
@@ -152,6 +155,18 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
 .empty{text-align:center;padding:36px 20px;color:#aaa}
 .empty h3{font-family:'Playfair Display',serif;font-size:19px;color:var(--navy);margin-bottom:6px}
 
+/* ── SIGN-IN SCREEN ── */
+#signin-screen{position:fixed;inset:0;background:var(--navy);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+.si-box{background:var(--sand-l);border-radius:20px;padding:38px 28px 32px;width:min(360px,100%);text-align:center;box-shadow:0 12px 50px rgba(0,0,0,.45)}
+.si-logo{font-size:56px;margin-bottom:10px;line-height:1}
+.si-title{font-family:'Playfair Display',serif;font-size:34px;color:var(--navy);margin-bottom:6px;font-weight:700}
+.si-sub{font-size:14px;color:#999;margin-bottom:30px;line-height:1.5}
+.si-btn{display:flex;align-items:center;justify-content:center;gap:11px;width:100%;padding:14px 20px;background:#fff;border:1.5px solid #e0d8cc;border-radius:10px;cursor:pointer;font-family:'Source Sans 3',sans-serif;font-size:15px;font-weight:600;color:#333;box-shadow:0 1px 4px rgba(0,0,0,.1);transition:background .15s,box-shadow .15s}
+.si-btn:active{background:#f5f5f5}
+.si-err{margin-top:14px;font-size:13px;color:#c0392b;min-height:18px}
+/* ── SAVING INDICATOR ── */
+#save-dot{width:7px;height:7px;border-radius:50%;background:rgba(245,230,200,.3);flex-shrink:0;transition:background .3s;align-self:center}
+#save-dot.saving{background:#f0c040}
 /* ── LOCATION DOT ── */
 .loc-dot{position:absolute;width:16px;height:16px;transform:translate(-50%,-50%);pointer-events:none}
 .loc-dot::before{content:'';position:absolute;inset:0;border-radius:50%;background:#4285f4;border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.35);z-index:1}
@@ -168,13 +183,29 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
 </head>
 <body>
 
+<div id="signin-screen">
+  <div class="si-box">
+    <div class="si-logo">⚓</div>
+    <h1 class="si-title">Sailing Log</h1>
+    <p class="si-sub">Your personal cruise journal</p>
+    <button class="si-btn" onclick="signInWithGoogle()">
+      <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v8.51h12.93c-.58 2.9-2.26 5.36-4.75 6.99l7.74 6.02C43.98 37.26 46.98 31.35 46.98 24.55z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.74-6.02c-2.15 1.45-4.92 2.3-8.15 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="#FBBC05" d="M10.53 28.56A13.96 13.96 0 0 1 10 24c0-1.58.27-3.12.53-4.56l-7.98-6.19A23.93 23.93 0 0 0 0 24c0 3.77.9 7.34 2.55 10.75l7.98-6.19z"/><path fill="#EA4335" d="M24 9.52c3.53 0 6.69 1.22 9.19 3.59l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.55 13.25l7.98 6.19C12.43 13.74 17.74 9.52 24 9.52z"/></svg>
+      Sign in with Google
+    </button>
+    <div class="si-err" id="si-err"></div>
+  </div>
+</div>
+
 <div id="hdr">
   <div id="hdr-top">
     <button id="cruise-btn" onclick="openCM()">
       <span id="cname-txt">My Cruise</span>
       <span class="chev">▾</span>
     </button>
+    <span id="user-name" style="font-size:12px;opacity:.55;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px"></span>
+    <div id="save-dot"></div>
     <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
+    <button class="hbtn" onclick="signOutUser()" title="Sign out" style="padding:6px 9px;font-size:15px">⏏</button>
   </div>
   <div id="lbar">
     <button class="ltog on" data-l="a" onclick="toggleL('a')"><span class="dot"></span>Anchorages</button>
@@ -257,23 +288,66 @@ let pressTimer = null, pressLL = null; // long-press state
 let locDot = null, locWatchId = null;  // geolocation
 let pendingPinLL = null;               // coordinates for the currently-open add sheet
 
-// ── DATA ─────────────────────────────────────────────────────────────────────
-function loadData(){
-  try{
-    const d = JSON.parse(localStorage.getItem('sj2') || 'null');
-    if(d && d.cruises) return d;
-  }catch(e){}
-  const id = 'c'+Date.now();
-  return {cruises:{[id]:{id,name:'Greek Islands 2025',created:Date.now(),pins:{}}},active:id};
+// ── FIREBASE ─────────────────────────────────────────────────────────────────
+firebase.initializeApp({
+  apiKey:'AIzaSyBgJ_9_k28nKMK-eO3WYpeHMvqZaUQUoeQ',
+  authDomain:'boating-492419.firebaseapp.com',
+  projectId:'boating-492419',
+  storageBucket:'boating-492419.firebasestorage.app',
+  messagingSenderId:'979588022709',
+  appId:'1:979588022709:web:037c9c4f09dff1a23199fc'
+});
+const auth = firebase.auth();
+const db   = firebase.firestore();
+
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+let currentUser = null;
+function signInWithGoogle(){
+  document.getElementById('si-err').textContent='';
+  auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
+    .catch(()=>{document.getElementById('si-err').textContent='Sign-in failed — please try again.';});
 }
-function save(){localStorage.setItem('sj2',JSON.stringify(D))}
-let D = loadData();
+function signOutUser(){
+  if(!confirm('Sign out?')) return;
+  auth.signOut();
+}
+
+// ── DATA ─────────────────────────────────────────────────────────────────────
+let D = null;
+async function loadData(){
+  const snap = await db.collection('users').doc(currentUser.uid).get();
+  if(snap.exists){
+    D = snap.data();
+  } else {
+    const id='c'+Date.now();
+    D={cruises:{[id]:{id,name:'My Cruise',created:Date.now(),pins:{}}},active:id};
+    await db.collection('users').doc(currentUser.uid).set(D);
+  }
+}
+let _saveTimer=null;
+function save(){
+  if(!currentUser) return;
+  const dot=document.getElementById('save-dot');
+  if(dot) dot.classList.add('saving');
+  clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(()=>{
+    db.collection('users').doc(currentUser.uid).set(D)
+      .then(()=>{if(dot) dot.classList.remove('saving');})
+      .catch(e=>console.error('Save failed',e));
+  },400);
+}
 function cruise(){return D.cruises[D.active]}
 function anchorsSorted(){
   return Object.values(cruise().pins).filter(p=>p.l==='a').sort((a,b)=>(a.ord||0)-(b.ord||0));
 }
 
 // ── MAP INIT ─────────────────────────────────────────────────────────────────
+let mapReady = false;
+function onBothReady(){
+  document.getElementById('cname-txt').textContent = cruise()?.name||'My Cruise';
+  renderAll();
+  startLocationTracking();
+}
 function initMap(){
   map = new google.maps.Map(document.getElementById('map'),{
     center:{lat:37.5,lng:25.0},zoom:7,mapTypeId:'terrain',
@@ -350,9 +424,8 @@ function initMap(){
     document.addEventListener('mouseup',   cancel);
   });
   map.addListener('dragstart', () => { clearTimeout(pressTimer); pressTimer = null; });
-  document.getElementById('cname-txt').textContent = cruise()?.name||'My Cruise';
-  renderAll();
-  startLocationTracking();
+  mapReady = true;
+  if(D) onBothReady(); // data already loaded (auth resolved first)
 }
 
 // ── GEOLOCATION ───────────────────────────────────────────────────────────────
@@ -560,23 +633,50 @@ function openAddSheet(layer, name, lat, lng){
 
 function renderPGrid(){
   const g=document.getElementById('pgrid'); if(!g) return;
-  g.innerHTML = pendingPhotos.map((src,i)=>`
-    <div class="pwrap">
-      <img class="pthumb" src="${src}" onclick="openLB(${i})" alt="">
-      <button class="pdel" onclick="rmPhoto(${i})">✕</button>
-    </div>`).join('')
-    +`<div class="padd" onclick="document.getElementById('pfi').click()">+</div>`;
+  g.innerHTML = pendingPhotos.map((src,i)=>src
+    ? `<div class="pwrap">
+         <img class="pthumb" src="${src}" onclick="openLB(${i})" alt="">
+         <button class="pdel" onclick="rmPhoto(${i})">✕</button>
+       </div>`
+    : `<div class="pwrap"><div class="pthumb" style="background:#f0e8d8;display:flex;align-items:center;justify-content:center;font-size:11px;color:#aaa;border-radius:7px">Uploading…</div></div>`
+  ).join('') + `<div class="padd" onclick="document.getElementById('pfi').click()">+</div>`;
 }
 function rmPhoto(i){
   pendingPhotos.splice(i,1);
   viewPhotos=pendingPhotos;
   renderPGrid();
 }
+function dataURLtoBlob(d){
+  const[h,b]=d.split(',');
+  const mime=h.match(/:(.*?);/)[1];
+  const bin=atob(b);
+  const arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:mime});
+}
+async function uploadCloudinary(dataURL){
+  const fd=new FormData();
+  fd.append('file',dataURLtoBlob(dataURL));
+  fd.append('upload_preset','sailing_log_unsigned');
+  const res=await fetch('https://api.cloudinary.com/v1_1/dyqrghoj3/image/upload',{method:'POST',body:fd});
+  const json=await res.json();
+  if(!json.secure_url) throw new Error('Upload failed');
+  return json.secure_url;
+}
 function onPhotoFile(inp){
   Array.from(inp.files).forEach(f=>{
     const r=new FileReader();
-    r.onload=e=>compress(e.target.result,900,d=>{
-      pendingPhotos.push(d);
+    r.onload=e=>compress(e.target.result,1200,async dataURL=>{
+      const slot=pendingPhotos.length;
+      pendingPhotos.push(null); // placeholder while uploading
+      viewPhotos=pendingPhotos;
+      renderPGrid();
+      try{
+        pendingPhotos[slot]=await uploadCloudinary(dataURL);
+      }catch(err){
+        pendingPhotos.splice(slot,1);
+        alert('Photo upload failed — please try again.');
+      }
       viewPhotos=pendingPhotos;
       renderPGrid();
     });
@@ -612,7 +712,7 @@ function savePin(layer){
     ds:document.getElementById('pds')?.value||'',
     de:document.getElementById('pde')?.value||'',
     notes:document.getElementById('pnotes')?.value?.trim()||'',
-    photos:[...pendingPhotos],ord};
+    photos:pendingPhotos.filter(Boolean),ord};
   save();
   placeMarker(c.pins[id]);
   if(layer==='a') reorderAnchors();
@@ -681,7 +781,7 @@ function saveEdit(pinId){
   pin.ds=document.getElementById('pds')?.value||'';
   pin.de=document.getElementById('pde')?.value||'';
   pin.notes=document.getElementById('pnotes')?.value?.trim()||'';
-  pin.photos=[...pendingPhotos];
+  pin.photos=pendingPhotos.filter(Boolean);
   save();
   if(MKS[pinId]) MKS[pinId].setTitle(name);
   renderStopList();
@@ -1184,6 +1284,26 @@ function initListSheet(){
   });
 }
 initListSheet();
+
+// ── AUTH STATE ────────────────────────────────────────────────────────────────
+auth.onAuthStateChanged(async user=>{
+  if(user){
+    currentUser=user;
+    await loadData();
+    const first=(user.displayName||'Sailor').split(' ')[0];
+    document.getElementById('user-name').textContent=first;
+    document.getElementById('signin-screen').style.display='none';
+    if(mapReady) onBothReady(); // map was ready first; render now
+  } else {
+    currentUser=null;
+    D=null;
+    Object.values(MKS).forEach(m=>m.setMap(null));
+    MKS={};
+    document.getElementById('stoplist').innerHTML='';
+    document.getElementById('user-name').textContent='';
+    document.getElementById('signin-screen').style.display='flex';
+  }
+});
 </script>
 <script async defer
   src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCLCSMOdToG7gpYAg-n6xhbvPfXYLY3o5c&libraries=places&callback=initMap">
