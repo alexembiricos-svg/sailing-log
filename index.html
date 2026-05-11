@@ -176,6 +176,13 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
 /* ── SAVING INDICATOR ── */
 #save-dot{width:7px;height:7px;border-radius:50%;background:rgba(245,230,200,.3);flex-shrink:0;transition:background .3s;align-self:center}
 #save-dot.saving{background:#f0c040}
+/* ── AIS DEBUG BANNER ── */
+#ais-banner{display:none;padding:5px 12px;font-size:12px;font-family:'Source Sans 3',sans-serif;font-weight:600;flex-shrink:0;z-index:10}
+#ais-banner.connecting{display:block;background:#3a4a1a;color:#c8e06a}
+#ais-banner.connected{display:block;background:#0f3320;color:#4ade80}
+#ais-banner.data{display:block;background:#0f3320;color:#4ade80}
+#ais-banner.error{display:block;background:#3a0f0f;color:#f87171}
+#ais-banner.closed{display:block;background:#2a1a0a;color:#fb923c}
 /* ── FLEET MODAL ── */
 #flt{position:fixed;inset:0;z-index:200;display:none;align-items:flex-end}
 #flt.show{display:flex}
@@ -270,6 +277,8 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
     <button class="ltog on" data-l="h" onclick="toggleL('h')"><span class="dot"></span>Hikes</button>
   </div>
 </div>
+
+<div id="ais-banner"></div>
 
 <div id="map-wrap">
   <div id="map"></div>
@@ -1532,25 +1541,45 @@ function timeSince(ts){
 }
 
 // ── AIS WEBSOCKET ─────────────────────────────────────────────────────────────
+function aisBanner(state, text){
+  const el=document.getElementById('ais-banner');
+  el.className=state;
+  el.textContent='AIS: '+text;
+  console.log('[AIS]',state,text);
+}
 function connectAIS(){
   clearTimeout(aisRetry);
   disconnectAIS();
   const f=D?.fleet;
-  if(!f?.length||!currentUser) return;
+  if(!f?.length||!currentUser){
+    document.getElementById('ais-banner').className=''; // hide if no fleet
+    return;
+  }
+  aisBanner('connecting','Connecting…');
   aisWS=new WebSocket('wss://stream.aisstream.io/v0/stream');
   aisWS.onopen=()=>{
-    aisWS.send(JSON.stringify({
+    const sub={
       APIKey:AIS_KEY,
       BoundingBoxes:[[[-90,-180],[90,180]]],
       FilterMessageTypes:['PositionReport'],
       FiltersShipMMSI:f.map(v=>String(v.mmsi))
-    }));
+    };
+    console.log('[AIS] Sending subscription:', JSON.stringify(sub));
+    aisWS.send(JSON.stringify(sub));
+    aisBanner('connected','Connected — waiting for data');
   };
   aisWS.onmessage=e=>{
-    try{ handleAIS(JSON.parse(e.data)); }catch(_){}
+    console.log('[AIS] Raw message:', e.data);
+    try{ handleAIS(JSON.parse(e.data)); }
+    catch(err){ aisBanner('error','Parse error: '+err.message); }
   };
-  aisWS.onerror=()=>{};
-  aisWS.onclose=()=>{
+  aisWS.onerror=err=>{
+    console.error('[AIS] WebSocket error:', err);
+    aisBanner('error','WebSocket error (see console)');
+  };
+  aisWS.onclose=ev=>{
+    console.log('[AIS] Connection closed — code:',ev.code,'reason:',ev.reason||'(none)');
+    aisBanner('closed',`Disconnected (code ${ev.code}) — retrying in 30 s`);
     aisWS=null;
     if(currentUser&&D?.fleet?.length) aisRetry=setTimeout(connectAIS,30000);
   };
@@ -1559,15 +1588,22 @@ function disconnectAIS(){
   if(aisWS){aisWS.onclose=null;aisWS.close();aisWS=null;}
 }
 function handleAIS(msg){
+  console.log('[AIS] Parsed message type:',msg.MessageType,'meta:',msg.MetaData);
   if(msg.MessageType!=='PositionReport') return;
   const mmsi=String(msg.MetaData.MMSI);
   const pr=msg.Message.PositionReport;
   const lat=pr.Latitude, lng=pr.Longitude;
-  if(lat==null||lng==null||lat===0&&lng===0) return;
+  if(lat==null||lng==null||lat===0&&lng===0){
+    console.warn('[AIS] Skipped — invalid position for MMSI',mmsi,{lat,lng});
+    return;
+  }
   const cog=pr.Cog, sog=pr.Sog;
+  const v=fleet().find(x=>x.mmsi===mmsi);
+  const vname=v?.name||mmsi;
+  console.log('[AIS] Position update:',vname,'lat:',lat,'lng:',lng,'COG:',cog,'SOG:',sog);
+  aisBanner('data',`Received data for ${vname} — ${parseFloat(sog||0).toFixed(1)} kn`);
   VPos[mmsi]={lat,lng,cog,sog,ts:Date.now()};
   placeVesselMarker(mmsi,lat,lng,cog);
-  // Light up the live dot in the fleet modal if it's open
   const dot=document.getElementById('fpulse-'+mmsi);
   if(dot) dot.classList.add('live');
 }
