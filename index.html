@@ -214,6 +214,9 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
     <!-- Registration form (hidden by default) -->
     <div id="si-register" style="display:none">
       <div class="si-fg">
+        <input class="si-fi" id="si-reg-name" type="text" placeholder="Your name" autocomplete="name">
+      </div>
+      <div class="si-fg">
         <input class="si-fi" id="si-reg-email" type="email" placeholder="Email" autocomplete="email" inputmode="email">
       </div>
       <div class="si-fg">
@@ -364,15 +367,18 @@ function emailSignIn(){
     .catch(e=>{err.textContent=friendlyAuthError(e);});
 }
 function emailRegister(){
+  const name=document.getElementById('si-reg-name').value.trim();
   const email=document.getElementById('si-reg-email').value.trim();
   const pass=document.getElementById('si-reg-pass').value;
   const pass2=document.getElementById('si-reg-pass2').value;
   const err=document.getElementById('si-reg-err');
   err.textContent='';
+  if(!name){err.textContent='Please enter your name.';return;}
   if(!email||!pass){err.textContent='Please fill in all fields.';return;}
   if(pass!==pass2){err.textContent='Passwords do not match.';return;}
   if(pass.length<6){err.textContent='Password must be at least 6 characters.';return;}
   auth.createUserWithEmailAndPassword(email,pass)
+    .then(cred=>cred.user.updateProfile({displayName:name}))
     .catch(e=>{err.textContent=friendlyAuthError(e);});
 }
 function signInWithGoogle(){
@@ -1374,7 +1380,7 @@ auth.onAuthStateChanged(async user=>{
   if(user){
     currentUser=user;
     await loadData();
-    const first=(user.displayName||'Sailor').split(' ')[0];
+    const first=(user.displayName||'').split(' ')[0]||'My Log';
     document.getElementById('user-name').textContent=first;
     document.getElementById('signin-screen').style.display='none';
     if(mapReady) onBothReady(); // map was ready first; render now
