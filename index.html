@@ -1490,12 +1490,12 @@ function vesselSVG(name, cog, ts){
     `<svg xmlns="http://www.w3.org/2000/svg" width="90" height="62" overflow="visible">
       <g transform="translate(45,20) rotate(${angle})">
         <!-- Hull: top-down sailboat silhouette, bow pointing up -->
-        <path d="M0,-17 C4,-13 6,-2 6,8 L4,15 L0,18 L-4,15 L-6,8 C-6,-2 -4,-13 0,-17Z"
-              fill="#1a7fd4" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M0,-13 C3,-10 5,-2 5,6 L3,11 L0,14 L-3,11 L-5,6 C-5,-2 -3,-10 0,-13Z"
+              fill="#1a7fd4" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
         <!-- Mast (white circle viewed from above) -->
-        <circle cx="0" cy="-4" r="1.8" fill="#fff"/>
+        <circle cx="0" cy="-3" r="1.4" fill="#fff"/>
         <!-- Boom (thin line extending from mast toward port-stern, suggests sail) -->
-        <line x1="0" y1="-4" x2="-5" y2="9" stroke="#fff" stroke-width="1.4"
+        <line x1="0" y1="-3" x2="-4" y2="7" stroke="#fff" stroke-width="1.1"
               stroke-linecap="round" opacity="0.65"/>
       </g>
       <text x="45" y="42" text-anchor="middle" font-family="sans-serif" font-size="10" font-weight="700"
