@@ -13,7 +13,7 @@
 :root{
   --navy:#1a2744;--navy-l:#243258;--navy-d:#0f1929;
   --sand:#f5e6c8;--sand-l:#fdf6ea;--sand-d:#e0ceaa;
-  --terra:#c1440e;--olive:#6b7c3e;--cobalt:#2e6da4;--forest:#2d6a4f;
+  --terra:#c1440e;--olive:#6b7c3e;--cobalt:#2e6da4;--coffee:#8B6914;
   --shadow:rgba(0,0,0,.25);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -37,7 +37,7 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
 .ltog[data-l="a"]{border-color:var(--terra)}  .ltog[data-l="a"].on{background:var(--terra);color:#fff}
 .ltog[data-l="r"]{border-color:var(--olive)}  .ltog[data-l="r"].on{background:var(--olive);color:#fff}
 .ltog[data-l="c"]{border-color:var(--cobalt)} .ltog[data-l="c"].on{background:var(--cobalt);color:#fff}
-.ltog[data-l="h"]{border-color:var(--forest)} .ltog[data-l="h"].on{background:var(--forest);color:#fff}
+.ltog[data-l="h"]{border-color:var(--coffee)} .ltog[data-l="h"].on{background:var(--coffee);color:#fff}
 
 /* ── MAP ── */
 #map-wrap{flex:1;position:relative;overflow:hidden}
@@ -207,6 +207,23 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
 .loc-btn:disabled{opacity:.6;cursor:default}
 .loc-btn.got{border-color:#4285f4;color:#2a6edb;background:#f0f5ff}
 .loc-btn.err{border-color:#d44;color:#b00;background:#fff2f2}
+
+/* ── LAYER BAR ADD BUTTON ── */
+.ltog-add{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;border:2px dashed rgba(245,230,200,.45);cursor:pointer;font-size:20px;line-height:1;color:rgba(245,230,200,.65);background:transparent;font-family:'Source Sans 3',sans-serif;flex-shrink:0;transition:border-color .15s,color .15s;padding:0}
+.ltog-add:active{opacity:.7}
+
+/* ── CUSTOM LAYER CREATE MODAL ── */
+#cl-modal{position:fixed;inset:0;z-index:200;display:none;align-items:flex-end}
+#cl-modal.show{display:flex}
+.cl-swatch{width:34px;height:34px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:border-color .15s,box-shadow .15s;flex-shrink:0}
+.cl-swatch.sel{border-color:var(--navy)!important;box-shadow:0 0 0 2px #fff inset}
+
+/* ── PDF PICK MODAL ── */
+#pdf-pick{position:fixed;inset:0;z-index:200;display:none;align-items:flex-end}
+#pdf-pick.show{display:flex}
+.pdf-pick-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #ede5d8;cursor:pointer}
+.pdf-pick-row:last-child{border-bottom:none}
+.pdf-pick-row input[type=checkbox]{width:18px;height:18px;flex-shrink:0;cursor:pointer}
 </style>
 </head>
 <body>
@@ -267,14 +284,16 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
     <span id="user-name" style="font-size:12px;opacity:.55;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px"></span>
     <div id="save-dot"></div>
     <button class="hbtn" onclick="openFleet()" id="fleet-btn" title="Friends Fleet" style="padding:6px 9px;font-size:15px">⛵</button>
-    <button class="hbtn" onclick="exportPDF()">⬇ PDF</button>
+    <button class="hbtn" onclick="openPDFPick()">⬇ PDF</button>
     <button class="hbtn" onclick="signOutUser()" title="Sign out" style="padding:6px 9px;font-size:15px">⏏</button>
   </div>
   <div id="lbar">
     <button class="ltog on" data-l="a" onclick="toggleL('a')"><span class="dot"></span>Anchorages</button>
     <button class="ltog on" data-l="r" onclick="toggleL('r')"><span class="dot"></span>Restaurants</button>
     <button class="ltog on" data-l="c" onclick="toggleL('c')"><span class="dot"></span>Culture</button>
-    <button class="ltog on" data-l="h" onclick="toggleL('h')"><span class="dot"></span>Hikes</button>
+    <button class="ltog on" data-l="h" onclick="toggleL('h')"><span class="dot"></span>Coffee</button>
+    <span id="cl-toggles"></span>
+    <button class="ltog-add" onclick="openCreateLayer()" title="Add custom layer">+</button>
   </div>
 </div>
 
@@ -290,7 +309,8 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
   <div class="lopt" onclick="startAdd('a')"><div class="lbadge" style="background:var(--terra)">⚓</div>Anchorage</div>
   <div class="lopt" onclick="startAdd('r')"><div class="lbadge" style="background:var(--olive)">R</div>Restaurant</div>
   <div class="lopt" onclick="startAdd('c')"><div class="lbadge" style="background:var(--cobalt)">C</div>Culture</div>
-  <div class="lopt" onclick="startAdd('h')"><div class="lbadge" style="background:var(--forest)">H</div>Hike</div>
+  <div class="lopt" onclick="startAdd('h')"><div class="lbadge" style="background:var(--coffee)">K</div>Coffee</div>
+  <div id="cl-lpick"></div>
 </div>
 
 <div id="list-sheet">
@@ -341,6 +361,43 @@ body{font-family:'Source Sans 3',sans-serif;background:var(--navy);color:var(--s
   </div>
 </div>
 
+<!-- ── CREATE LAYER MODAL ── -->
+<div id="cl-modal">
+  <div class="cmo" onclick="closeCreateLayer()"></div>
+  <div class="cmp">
+    <div class="handle" style="margin:10px auto 0"></div>
+    <div class="cmtop">
+      <div class="cmtitle">Create Layer</div>
+      <div style="padding:0 16px 4px">
+        <div class="fg"><label class="fl">Layer Name</label>
+          <input class="nci" id="cl-name" placeholder="e.g. Beaches" style="width:100%"></div>
+        <div class="fg"><label class="fl">Colour</label>
+          <div id="cl-colors" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"></div></div>
+        <div class="fg"><label class="fl">Map Pin Label (1–2 chars)</label>
+          <input class="nci" id="cl-letter" placeholder="B" maxlength="2" style="width:64px;text-align:center;font-weight:700;font-size:17px"></div>
+        <div id="cl-err" style="font-size:12px;color:#c0392b;min-height:16px;margin-bottom:6px"></div>
+        <button class="ncb" style="width:100%;padding:12px;border-radius:10px" onclick="saveCustomLayer()">Create Layer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PDF LAYER PICKER MODAL ── -->
+<div id="pdf-pick">
+  <div class="cmo" onclick="closePDFPick()"></div>
+  <div class="cmp">
+    <div class="handle" style="margin:10px auto 0"></div>
+    <div class="cmtop">
+      <div class="cmtitle">Export PDF</div>
+      <p style="font-size:13px;color:#999;text-align:center;margin:-4px 0 10px">Choose which layers to include</p>
+      <div id="pdf-pick-layers" style="padding:0 16px 4px"></div>
+      <div class="ncf" style="padding:8px 16px 16px">
+        <button class="ncb" style="width:100%;padding:12px;border-radius:10px" onclick="doExportPDF()">Export PDF</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <button id="refresh-btn" onclick="refreshFleet()" title="Refresh fleet positions">
   <span class="ri">⟳</span>
 </button>
@@ -359,8 +416,8 @@ const LC = {
      autoPrefix:'Restaurant',placeholder:'e.g. Taverna Gitoniko'},
   c:{label:'Culture',short:'Culture',color:'#2e6da4',letter:'C',
      autoPrefix:'Site',placeholder:'e.g. Temple of Aphaia'},
-  h:{label:'Hikes',short:'Hike',color:'#2d6a4f',letter:'H',
-     autoPrefix:'Hike',placeholder:'e.g. Coastal path to Vlychos'}
+  h:{label:'Coffee',short:'Coffee',color:'#8B6914',letter:'K',
+     autoPrefix:'Café',placeholder:'e.g. Mikro Café, Hydra'}
 };
 const GKEY = 'AIzaSyCLCSMOdToG7gpYAg-n6xhbvPfXYLY3o5c';
 
@@ -480,11 +537,21 @@ function cruise(){return D.cruises[D.active]}
 function anchorsSorted(){
   return Object.values(cruise().pins).filter(p=>p.l==='a').sort((a,b)=>(a.ord||0)-(b.ord||0));
 }
+function customLayers(){ return D?.customLayers||[]; }
+function allLayerKeys(){ return ['a','r','c','h',...customLayers().map(cl=>cl.id)]; }
+function layerCfg(l){
+  if(LC[l]) return LC[l];
+  const cl=customLayers().find(c=>c.id===l);
+  return cl||{label:l,short:l,color:'#64748B',letter:l.slice(0,1).toUpperCase(),autoPrefix:l,placeholder:'Enter name…'};
+}
 
 // ── MAP INIT ─────────────────────────────────────────────────────────────────
 let mapReady = false;
 function onBothReady(){
   document.getElementById('cname-txt').textContent = cruise()?.name||'My Cruise';
+  customLayers().forEach(cl=>{ if(vis[cl.id]===undefined) vis[cl.id]=true; });
+  renderCustomLayerToggles();
+  renderCustomLayerPick();
   renderAll();
   startLocationTracking();
   updateRefreshBtn();
@@ -628,7 +695,7 @@ function useMyLocation(){
 
 // ── MARKERS ──────────────────────────────────────────────────────────────────
 function markerSVG(layer, lbl){
-  const c = LC[layer].color;
+  const c = layerCfg(layer).color;
   const t = String(lbl);
   const fs = t.length>1 ? 10 : 13;
   return `data:image/svg+xml;charset=UTF-8,`+encodeURIComponent(
@@ -649,7 +716,7 @@ function mkIcon(layer, lbl){
 }
 function placeMarker(pin){
   const ancs = anchorsSorted();
-  const lbl = pin.l==='a' ? (ancs.findIndex(p=>p.id===pin.id)+1) : LC[pin.l].letter;
+  const lbl = pin.l==='a' ? (ancs.findIndex(p=>p.id===pin.id)+1) : layerCfg(pin.l).letter;
   const mk = new google.maps.Marker({
     position:{lat:pin.lat,lng:pin.lng},
     map: vis[pin.l]?map:null,
@@ -677,7 +744,15 @@ function reorderAnchors(){
 // ── LAYERS ───────────────────────────────────────────────────────────────────
 function toggleL(l){
   vis[l]=!vis[l];
-  document.querySelector(`.ltog[data-l="${l}"]`).classList.toggle('on',vis[l]);
+  const btn=document.querySelector(`.ltog[data-l="${l}"]`);
+  if(btn){
+    btn.classList.toggle('on',vis[l]);
+    if(!LC[l]){ // custom layer — colour via inline style
+      const cfg=layerCfg(l);
+      btn.style.background=vis[l]?cfg.color:'transparent';
+      btn.style.color=vis[l]?'#fff':'var(--sand)';
+    }
+  }
   const c=cruise(); if(!c) return;
   Object.values(c.pins).filter(p=>p.l===l).forEach(p=>{
     if(MKS[p.id]) MKS[p.id].setMap(vis[l]?map:null);
@@ -738,8 +813,8 @@ function reverseGeocode(lat,lng,cb){
 function openAddSheet(layer, name, lat, lng){
   curPin=null; pendingPhotos=[]; viewPhotos=pendingPhotos;
   pendingPinLL={lat,lng};
-  const cfg=LC[layer];
-  const geocoding=!name && (layer==='a'||layer==='h');
+  const cfg=layerCfg(layer);
+  const geocoding=!name && layer==='a';
   const ph=geocoding?'Finding location…':cfg.placeholder;
   openSheet('Add '+cfg.short, `
     <div class="badge" style="background:${cfg.color}">${cfg.letter} ${cfg.label}</div>
@@ -840,7 +915,7 @@ function compress(src, maxPx, cb){
 function autoName(layer){
   const c=cruise();
   const count=Object.values(c.pins).filter(p=>p.l===layer).length+1;
-  return LC[layer].autoPrefix+' '+count;
+  return layerCfg(layer).autoPrefix+' '+count;
 }
 function savePin(layer){
   const {lat,lng}=pendingPinLL||{lat:0,lng:0};
@@ -867,7 +942,7 @@ function openViewSheet(pinId){
   const c=cruise();
   const pin=c.pins[pinId]; if(!pin) return;
   curPin=pinId;
-  const cfg=LC[pin.l];
+  const cfg=layerCfg(pin.l);
   viewPhotos=pin.photos||[];
   const ancs=anchorsSorted();
   const num=pin.l==='a'?(ancs.findIndex(p=>p.id===pinId)+1):null;
@@ -893,7 +968,7 @@ function openEditSheet(pinId){
   curPin=pinId;
   pendingPhotos=[...(pin.photos||[])];
   viewPhotos=pendingPhotos;
-  const cfg=LC[pin.l];
+  const cfg=layerCfg(pin.l);
   openSheet('Edit Pin',`
     <div class="badge" style="background:${cfg.color}">${cfg.letter} ${cfg.label}</div>
     <div class="fg"><label class="fl">Name</label>
@@ -947,14 +1022,91 @@ function delPin(pinId){
   closeSheet();
 }
 
+// ── CUSTOM LAYERS ─────────────────────────────────────────────────────────────
+const CL_PRESET_COLORS=['#8B5CF6','#EC4899','#14B8A6','#F59E0B','#EF4444','#64748B'];
+let clSelectedColor=CL_PRESET_COLORS[0];
+
+function renderCustomLayerToggles(){
+  const span=document.getElementById('cl-toggles'); if(!span) return;
+  span.innerHTML=customLayers().map(cl=>{
+    const on=vis[cl.id]!==false;
+    return `<button class="ltog${on?' on':''}" data-l="${cl.id}"
+      style="border-color:${cl.color}${on?`;background:${cl.color};color:#fff`:''}"
+      onclick="toggleL('${cl.id}')"><span class="dot"></span>${esc(cl.name)}<span
+      onclick="event.stopPropagation();deleteCustomLayer('${cl.id}')"
+      style="margin-left:4px;font-size:10px;opacity:.65;font-weight:400;line-height:1">✕</span></button>`;
+  }).join('');
+}
+function renderCustomLayerPick(){
+  const div=document.getElementById('cl-lpick'); if(!div) return;
+  div.innerHTML=customLayers().map(cl=>`
+    <div class="lopt" onclick="startAdd('${cl.id}')">
+      <div class="lbadge" style="background:${cl.color}">${esc(cl.letter||cl.name.slice(0,1).toUpperCase())}</div>
+      ${esc(cl.name)}
+    </div>`).join('');
+}
+function openCreateLayer(){
+  if(customLayers().length>=4){alert('Maximum 4 custom layers. Delete one to add another.');return;}
+  clSelectedColor=CL_PRESET_COLORS[0];
+  document.getElementById('cl-name').value='';
+  document.getElementById('cl-letter').value='';
+  document.getElementById('cl-err').textContent='';
+  const wrap=document.getElementById('cl-colors');
+  wrap.innerHTML=CL_PRESET_COLORS.map((c,i)=>
+    `<div class="cl-swatch${i===0?' sel':''}" style="background:${c}" onclick="clPickColor('${c}',this)"></div>`
+  ).join('');
+  document.getElementById('cl-modal').classList.add('show');
+}
+function closeCreateLayer(){
+  document.getElementById('cl-modal').classList.remove('show');
+}
+function clPickColor(c,el){
+  clSelectedColor=c;
+  document.querySelectorAll('.cl-swatch').forEach(s=>s.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function saveCustomLayer(){
+  const name=document.getElementById('cl-name').value.trim();
+  const letter=document.getElementById('cl-letter').value.trim().toUpperCase();
+  const err=document.getElementById('cl-err');
+  err.textContent='';
+  if(!name){err.textContent='Please enter a layer name.';return;}
+  if(!letter){err.textContent='Please enter a 1–2 character map pin label.';return;}
+  if(!D.customLayers) D.customLayers=[];
+  if(D.customLayers.length>=4){err.textContent='Maximum 4 custom layers reached.';return;}
+  const id='cl_'+Date.now();
+  D.customLayers.push({id,name,color:clSelectedColor,letter,
+    short:name,label:name,autoPrefix:name,placeholder:'Enter name…',created:Date.now()});
+  vis[id]=true;
+  save();
+  renderCustomLayerToggles();
+  renderCustomLayerPick();
+  closeCreateLayer();
+}
+function deleteCustomLayer(id){
+  const cfg=layerCfg(id);
+  if(!confirm(`Delete layer "${cfg.name}" and all its pins?`)) return;
+  D.customLayers=(D.customLayers||[]).filter(cl=>cl.id!==id);
+  Object.values(D.cruises).forEach(cr=>{
+    Object.keys(cr.pins).forEach(pinId=>{
+      if(cr.pins[pinId].l===id) delete cr.pins[pinId];
+    });
+  });
+  delete vis[id];
+  save();
+  renderAll();
+  renderCustomLayerToggles();
+  renderCustomLayerPick();
+}
+
 // ── STOP LIST ────────────────────────────────────────────────────────────────
 function renderStopList(){
   const el=document.getElementById('stoplist'); if(!el) return;
   const c=cruise();
   const pins=c?Object.values(c.pins):[];
   let html='';
-  for(const l of ['a','r','c','h']){
-    const cfg=LC[l];
+  for(const l of allLayerKeys()){
+    const cfg=layerCfg(l);
     const lp=l==='a'?anchorsSorted():pins.filter(p=>p.l===l);
     if(!lp.length) continue;
     // Layer header row
@@ -1041,7 +1193,35 @@ function openLB(i){
 function closeLB(){document.getElementById('lb').classList.remove('show')}
 
 // ── PDF EXPORT ────────────────────────────────────────────────────────────────
-async function exportPDF(){
+function openPDFPick(){
+  const keys=allLayerKeys();
+  const c=cruise();
+  const pins=c?Object.values(c.pins):[];
+  const html=keys.map(l=>{
+    const cfg=layerCfg(l);
+    const cnt=l==='a'?anchorsSorted().length:pins.filter(p=>p.l===l).length;
+    return `<label class="pdf-pick-row">
+      <input type="checkbox" checked data-l="${l}" style="accent-color:${cfg.color}">
+      <div class="lbadge" style="background:${cfg.color}">${esc(cfg.letter)}</div>
+      <span style="flex:1;font-size:14px;color:var(--navy);font-weight:600">${esc(cfg.label)}</span>
+      <span style="font-size:12px;color:#aaa">${cnt} stop${cnt!==1?'s':''}</span>
+    </label>`;
+  }).join('');
+  document.getElementById('pdf-pick-layers').innerHTML=html;
+  document.getElementById('pdf-pick').classList.add('show');
+}
+function closePDFPick(){
+  document.getElementById('pdf-pick').classList.remove('show');
+}
+async function doExportPDF(){
+  const checks=document.querySelectorAll('#pdf-pick-layers input[type=checkbox]');
+  const selected=new Set([...checks].filter(cb=>cb.checked).map(cb=>cb.dataset.l));
+  closePDFPick();
+  if(!selected.size){alert('Please select at least one layer.');return;}
+  await exportPDF(selected);
+}
+
+async function exportPDF(selected){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const c=cruise();
@@ -1051,7 +1231,8 @@ async function exportPDF(){
   // Palette
   const NAVY=[26,39,68],SAND=[245,230,200],SAND_L=[253,246,234];
   const GREY=[148,140,130],WHITE=[255,255,255],DIV=[215,205,190];
-  const LRGB={a:[193,68,14],r:[107,124,62],c:[46,109,164],h:[45,106,79]};
+  const LRGB={a:[193,68,14],r:[107,124,62],c:[46,109,164],h:[139,105,20]};
+  function getRGB(l){ return LRGB[l]||hexRGB(layerCfg(l).color); }
 
   // ── HELPERS ──────────────────────────────────────────────────────────────────
   function dateRange(){
@@ -1129,7 +1310,8 @@ async function exportPDF(){
 
   // Map
   const IMG_W=640,IMG_H=400,PAD_PX=35;
-  const {cLat,cLng,zoom:mapZoom}=calcView(pins,IMG_W,IMG_H,PAD_PX);
+  const selPins=pins.filter(p=>selected.has(p.l));
+  const {cLat,cLng,zoom:mapZoom}=calcView(selPins,IMG_W,IMG_H,PAD_PX);
   const mapX=ML,mapY=62,mapW=CW,mapH=Math.round(CW*IMG_H/IMG_W); // ≈111mm
   try{
     const img=await imgToDataURL(coverMapUrl(cLat,cLng,mapZoom));
@@ -1141,23 +1323,19 @@ async function exportPDF(){
     // Overlay labeled markers drawn with jsPDF (no single-char API limitation)
     const scX=mapW/IMG_W, scY=mapH/IMG_H;
     const cPx=worldPx(cLat,cLng,mapZoom);
-    const layerPins={
-      a:anchorsSorted(),
-      r:pins.filter(p=>p.l==='r'),
-      c:pins.filter(p=>p.l==='c'),
-      h:pins.filter(p=>p.l==='h')
-    };
-    for(const l of ['a','r','c','h']){
-      layerPins[l].forEach((p,i)=>{
+    const layerPins={};
+    for(const l of selected){ layerPins[l]=l==='a'?anchorsSorted():pins.filter(p=>p.l===l); }
+    for(const l of selected){
+      (layerPins[l]||[]).forEach((p,i)=>{
         const px=worldPx(p.lat,p.lng,mapZoom);
         const ix=IMG_W/2+(px.x-cPx.x);
         const iy=IMG_H/2+(px.y-cPx.y);
-        if(ix<3||ix>IMG_W-3||iy<3||iy>IMG_H-3) return; // clamp
+        if(ix<3||ix>IMG_W-3||iy<3||iy>IMG_H-3) return;
         const mx=mapX+ix*scX;
         const my=mapY+iy*scY;
-        const lbl=l==='a'?String(i+1):(LC[l].letter+String(i+1));
+        const lbl=l==='a'?String(i+1):(layerCfg(l).letter+String(i+1));
         const r=3.2;
-        doc.setFillColor(...LRGB[l]);
+        doc.setFillColor(...getRGB(l));
         doc.circle(mx,my,r,'F');
         doc.setDrawColor(...WHITE);
         doc.setLineWidth(0.3);
@@ -1184,23 +1362,27 @@ async function exportPDF(){
   doc.setTextColor(...GREY);
   doc.text('STOPS BY CATEGORY',ML,lgY);
 
-  const lkeys=['a','r','c','h'];
-  const bw=(CW-12)/4; // box width with 4px gap between
-  lkeys.forEach((l,i)=>{
-    const rgb=LRGB[l];
-    const cnt=l==='a'?anchorsSorted().length:pins.filter(p=>p.l===l).length;
-    const bx=ML+i*(bw+4), by=lgY+5;
-    doc.setFillColor(...rgb);
-    doc.roundedRect(bx,by,bw,16,2,2,'F');
-    doc.setFont('helvetica','bold');
-    doc.setFontSize(17);
-    doc.setTextColor(...WHITE);
-    doc.text(String(cnt),bx+bw/2,by+11,{align:'center'});
-    doc.setFont('helvetica','normal');
-    doc.setFontSize(7);
-    doc.setTextColor(...NAVY);
-    doc.text(LC[l].label,bx+bw/2,by+22,{align:'center'});
-  });
+  const lkeys=[...selected];
+  const perRow=Math.min(lkeys.length,4);
+  if(perRow>0){
+    const bw=(CW-(perRow-1)*4)/perRow;
+    lkeys.forEach((l,i)=>{
+      const rgb=getRGB(l);
+      const cnt=l==='a'?anchorsSorted().length:pins.filter(p=>p.l===l).length;
+      const row=Math.floor(i/perRow), col=i%perRow;
+      const bx=ML+col*(bw+4), by=lgY+5+row*30;
+      doc.setFillColor(...rgb);
+      doc.roundedRect(bx,by,bw,16,2,2,'F');
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(17);
+      doc.setTextColor(...WHITE);
+      doc.text(String(cnt),bx+bw/2,by+11,{align:'center'});
+      doc.setFont('helvetica','normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...NAVY);
+      doc.text(layerCfg(l).label,bx+bw/2,by+22,{align:'center'});
+    });
+  }
 
   // ── STOP PAGES ───────────────────────────────────────────────────────────────
   let pageNum=0;
@@ -1239,8 +1421,8 @@ async function exportPDF(){
 
   // Draw one stop at the current y, advancing y
   function drawStop(pin,idx,l,isLast){
-    const rgb=LRGB[l];
-    const lbl=l==='a'?String(idx+1):(LC[l].letter+String(idx+1));
+    const rgb=getRGB(l);
+    const lbl=l==='a'?String(idx+1):(layerCfg(l).letter+String(idx+1));
     const dotX=ML+4.5, dotY=y+4;
 
     // Coloured dot badge
@@ -1292,10 +1474,10 @@ async function exportPDF(){
   }
 
   // Iterate layer groups
-  for(const l of lkeys){
+  for(const l of selected){
     const lPins=l==='a'?anchorsSorted():pins.filter(p=>p.l===l);
     if(!lPins.length) continue;
-    const rgb=LRGB[l];
+    const rgb=getRGB(l);
 
     // Open a content page (first time, or if header+first stop won't fit)
     if(pageNum===0){
@@ -1310,7 +1492,7 @@ async function exportPDF(){
     doc.setFont('helvetica','bold');
     doc.setFontSize(9);
     doc.setTextColor(...WHITE);
-    doc.text(LC[l].label.toUpperCase(),ML+5,y+5.5);
+    doc.text(layerCfg(l).label.toUpperCase(),ML+5,y+5.5);
     doc.setFont('helvetica','normal');
     doc.setFontSize(8);
     doc.text(`${lPins.length} stop${lPins.length!==1?'s':''}`,W-MR-2,y+5.5,{align:'right'});
@@ -1327,7 +1509,7 @@ async function exportPDF(){
         doc.setFont('helvetica','bold');
         doc.setFontSize(7);
         doc.setTextColor(...WHITE);
-        doc.text(LC[l].label.toUpperCase()+' (cont.)',ML+4,y+3.5);
+        doc.text(layerCfg(l).label.toUpperCase()+' (cont.)',ML+4,y+3.5);
         y+=8;
       }
       drawStop(pin,i,l,i===lPins.length-1);
